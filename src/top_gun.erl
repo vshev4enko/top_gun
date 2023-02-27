@@ -60,24 +60,25 @@
     connected     :: boolean(),
     conn_opts     :: gun:opts(),
     handler       :: module(),
-    handler_state :: term()
+    handler_state :: undefined | term()
 }).
+
+-type handler() :: module() | {module(), term()}.
+-export_type([handler/0]).
 
 -type start_arg() ::
     {name, gen_server:server_name()}
-    | {handler_state, term()}
     | {conn_opts, gun:opts()}.
 -export_type([start_arg/0]).
 
--spec start_link(string:grapheme_cluster(), module()) -> gen_server:start_ret().
-start_link(Url, Module) ->
-    start_link(Url, Module, []).
+-spec start_link(string:grapheme_cluster(), handler()) -> gen_server:start_ret().
+start_link(Url, Handler) -> start_link(Url, Handler, []).
 
--spec start_link(string:grapheme_cluster(), module(), [start_arg()]) -> gen_server:start_ret().
-start_link(Url, Module, Args) ->
+-spec start_link(string:grapheme_cluster(), handler(), [start_arg()]) -> gen_server:start_ret().
+start_link(Url, Handler, Args) ->
     case proplists:get_value(name, Args) of
-        undefined -> gen_server:start_link(?MODULE, {Url, Module, Args}, []);
-        Name -> gen_server:start_link(Name, ?MODULE, {Url, Module, Args}, [])
+        undefined -> gen_server:start_link(?MODULE, {Url, Handler, Args}, []);
+        Name      -> gen_server:start_link(Name, ?MODULE, {Url, Handler, Args}, [])
     end.
 
 -type client() :: gen_server:server_ref().
@@ -90,16 +91,20 @@ send_frame(Client, Frames) ->
 cast(Client, Message) ->
     gen_server:cast(Client, {cast, Message}).
 
-init({Url, Module, Args}) ->
+init({Url, Handler0, Args}) ->
     process_flag(trap_exit, true),
-    ConnOpts     = proplists:get_value(conn_opts, Args, #{}),
-    HandlerState = proplists:get_value(handler_state, Args),
+    ConnOpts = proplists:get_value(conn_opts, Args, #{}),
 
+    {Handler, HandlerState} =
+        case Handler0 of
+            {Handler1, HandlerState1} -> {Handler1, HandlerState1};
+            Handler1                  -> {Handler1, undefined}
+        end,
     State = #state{
         uri           = parse_url(Url),
         conn_opts     = ConnOpts#{retry => 0, protocols => [http]},
         connected     = false,
-        handler       = Module,
+        handler       = Handler,
         handler_state = HandlerState
     },
     {ok, State, {continue, connect}}.
@@ -150,21 +155,29 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
     case apply(Handler, Function, Args ++ [HandlerState]) of
         {noreply, NewHandlerState} ->
             State#state{handler_state = NewHandlerState};
-        {reply, Frames, NewHandlerState} when Function == handle_connect orelse Function == handle_frame orelse Function == handle_cast orelse Function == handle_info ->
+        {reply, Frames, NewHandlerState} when Function == handle_connect orelse
+                                              Function == handle_frame orelse
+                                              Function == handle_cast orelse
+                                              Function == handle_info ->
             #state{conn = Conn, stream = Stream} = State,
             ok = gun:ws_send(Conn, Stream, Frames),
             State#state{handler_state = NewHandlerState};
-        {stop, Reason, NewHandlerState} when Function == handle_disconnect orelse Function == handle_frame orelse Function == handle_cast orelse Function == handle_info ->
+        {stop, Reason, NewHandlerState} when Function == handle_disconnect orelse
+                                             Function == handle_frame orelse
+                                             Function == handle_cast orelse
+                                             Function == handle_info ->
             self() ! {shutdown, Reason},
             State#state{handler_state = NewHandlerState};
-        {reconnect, Timeout, NewHandlerState} when Function == handle_disconnect orelse Function == handle_info ->
-            #state{conn = Conn, monitor = Monitor, connected=Connected} = State,
+        {reconnect, Timeout, NewHandlerState} when Function == handle_disconnect orelse
+                                                   Function == handle_info ->
+            #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
             Connected andalso demonitor(Monitor, [flush]) andalso gun:close(Conn),
             NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
             erlang:send_after(Timeout, self(), {internal, reconnect}),
             NewState#state{handler_state = NewHandlerState};
-        {reconnect, NewHandlerState} when Function == handle_disconnect orelse Function == handle_info ->
-            #state{conn = Conn, monitor = Monitor, connected=Connected} = State,
+        {reconnect, NewHandlerState} when Function == handle_disconnect orelse
+                                          Function == handle_info ->
+            #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
             Connected andalso demonitor(Monitor, [flush]) andalso gun:close(Conn),
             NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
             self() ! {internal, reconnect},

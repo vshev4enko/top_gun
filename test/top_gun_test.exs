@@ -62,10 +62,8 @@ defmodule TopGunTest do
 
     start_supervised!(
       {WsClient,
-       {"ws://localhost:#{port}/", WsClient,
-        name: {:local, WsClient},
-        handler_state: %{send_to: self()},
-        conn_opts: %{ws_opts: %{closing_timeout: 1}}}},
+       {"ws://localhost:#{port}/", {WsClient, %{send_to: self()}},
+        name: {:local, WsClient}, conn_opts: %{ws_opts: %{closing_timeout: 1}}}},
       restart: :transient,
       id: WsClient
     )

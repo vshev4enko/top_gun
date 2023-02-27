@@ -160,13 +160,9 @@ defmodule TopGun do
     end
   end
 
-  @type start_arg() ::
-          {:name, :gen_server.server_name()}
-          | {:conn_opts, :gun.opts()}
-
-  @spec start_link(String.t(), module(), [start_arg()]) :: GenServer.on_start()
-  def start_link(url, module, args \\ []) do
-    :top_gun.start_link(to_charlist(url), module, args)
+  @spec start_link(String.t(), :top_gun.handler(), [:top_gun.start_arg()]) :: GenServer.on_start()
+  def start_link(url, handler, args \\ []) do
+    :top_gun.start_link(to_charlist(url), handler, args)
   end
 
   @type client() :: :gen_server.server_ref()
