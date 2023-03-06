@@ -160,7 +160,11 @@ defmodule TopGun do
     end
   end
 
-  @spec start_link(String.t(), :top_gun.handler(), [:top_gun.start_arg()]) :: GenServer.on_start()
+  @type url :: String.t()
+  @type handler :: :top_gun.handler()
+  @type arg :: :top_gun.start_arg()
+
+  @spec start_link(url(), handler(), [arg()]) :: GenServer.on_start()
   def start_link(url, handler, args \\ []) do
     :top_gun.start_link(to_charlist(url), handler, args)
   end

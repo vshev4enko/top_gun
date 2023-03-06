@@ -4,7 +4,9 @@ defmodule TopGunTest do
   defmodule WsClient do
     use TopGun
 
-    def start_link({url, handler, opts}) do
+    def start_link(opts) do
+      {url, opts} = Keyword.pop!(opts, :url)
+      {handler, opts} = Keyword.pop!(opts, :handler)
       TopGun.start_link(url, handler, opts)
     end
 
@@ -62,10 +64,10 @@ defmodule TopGunTest do
 
     start_supervised!(
       {WsClient,
-       {"ws://localhost:#{port}/", {WsClient, %{send_to: self()}},
-        name: {:local, WsClient}, conn_opts: %{ws_opts: %{closing_timeout: 1}}}},
-      restart: :transient,
-      id: WsClient
+       name: {:local, WsClient},
+       url: "ws://localhost:#{port}",
+       handler: {WsClient, %{send_to: self()}},
+       conn_opts: %{ws_opts: %{closing_timeout: 1}}}
     )
 
     # make sure new ws connection initialysed

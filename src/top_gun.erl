@@ -63,7 +63,7 @@
     handler_state :: undefined | term()
 }).
 
--type handler() :: module() | {module(), term()}.
+-type handler() :: Handler :: module() | {Handler :: module(), HandlerState :: term()}.
 -export_type([handler/0]).
 
 -type start_arg() ::
@@ -130,18 +130,19 @@ handle_info({gun_up, Conn, _Proto}, #state{uri = #{path := Path}, conn_opts = Co
 % skip gun_down event to invoke handle_disconnect on `DOWN` monitor.
 handle_info({gun_down, Conn, _Proto, _Reason, _Streams}, #state{conn = Conn} = State) ->
     {noreply, State};
-% handles ws conn establisment
+% ws conn established
 handle_info({gun_upgrade, Conn, Stream, [<<"websocket">>], Headers}, #state{conn = Conn, stream = Stream} = State) ->
     NewState = State#state{connected = true},
     {noreply, dispatch(NewState, handle_connect, [Headers])};
 % handles incoming frames
 handle_info({gun_ws, Conn, Stream, Frame}, #state{conn = Conn, stream = Stream} = State) ->
     {noreply, dispatch(State, handle_frame, [Frame])};
-handle_info({shutdown, Reason}, State) ->
-    {stop, Reason, State};
+% conn shutdown
 handle_info({'DOWN', Ref, process, Conn, Reason}, #state{conn = Conn, monitor = Ref} = State) ->
     NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
     {noreply, dispatch(NewState, handle_disconnect, [Reason])};
+handle_info({shutdown, Reason}, State) ->
+    {stop, Reason, State};
 handle_info({internal, reconnect}, #state{} = State) ->
     {noreply, State, {continue, connect}};
 handle_info(Message, #state{} = State) ->
@@ -171,14 +172,14 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
         {reconnect, Timeout, NewHandlerState} when Function == handle_disconnect orelse
                                                    Function == handle_info ->
             #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
-            Connected andalso demonitor(Monitor, [flush]) andalso gun:close(Conn),
+            Connected andalso demonitor(Monitor, [flush]) andalso gun:shutdown(Conn),
             NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
             erlang:send_after(Timeout, self(), {internal, reconnect}),
             NewState#state{handler_state = NewHandlerState};
         {reconnect, NewHandlerState} when Function == handle_disconnect orelse
                                           Function == handle_info ->
             #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
-            Connected andalso demonitor(Monitor, [flush]) andalso gun:close(Conn),
+            Connected andalso demonitor(Monitor, [flush]) andalso gun:shutdown(Conn),
             NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
             self() ! {internal, reconnect},
             NewState#state{handler_state = NewHandlerState};
@@ -187,8 +188,13 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
     end.
 
 parse_url(Url) ->
-    case uri_string:normalize(Url, [return_map]) of
-        #{port := _} = Uri -> Uri;
-        #{scheme := "wss"} = Uri -> Uri#{port => 443};
-        #{scheme := "ws"} = Uri -> Uri#{port => 80}
-    end.
+    normalize_path(
+        normalize_port(
+            uri_string:normalize(Url, [return_map]))).
+
+normalize_port(#{port := _} = Uri) -> Uri;
+normalize_port(#{scheme := "wss"} = Uri) -> Uri#{port => 443};
+normalize_port(#{scheme := "ws"} = Uri) -> Uri#{port => 80}.
+
+normalize_path(#{path := []} = Uri) -> Uri#{path => "/"};
+normalize_path(Uri) -> Uri.
