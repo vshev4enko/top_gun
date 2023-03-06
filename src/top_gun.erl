@@ -141,7 +141,8 @@ handle_info({gun_ws, Conn, Stream, Frame}, #state{conn = Conn, stream = Stream} 
 handle_info({'DOWN', Ref, process, Conn, Reason}, #state{conn = Conn, monitor = Ref} = State) ->
     NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
     {noreply, dispatch(NewState, handle_disconnect, [Reason])};
-handle_info({shutdown, Reason}, State) ->
+% top_gun internal messaging
+handle_info({internal, {shutdown, Reason}}, State) ->
     {stop, Reason, State};
 handle_info({internal, reconnect}, #state{} = State) ->
     {noreply, State, {continue, connect}};
@@ -167,7 +168,7 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
                                              Function == handle_frame orelse
                                              Function == handle_cast orelse
                                              Function == handle_info ->
-            self() ! {shutdown, Reason},
+            self() ! {internal, {shutdown, Reason}},
             State#state{handler_state = NewHandlerState};
         {reconnect, Timeout, NewHandlerState} when Function == handle_disconnect orelse
                                                    Function == handle_info ->
