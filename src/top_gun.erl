@@ -102,7 +102,7 @@ init({Url, Handler0, Args}) ->
         end,
     State = #state{
         uri           = parse_url(Url),
-        conn_opts     = ConnOpts#{retry => 0, protocols => [http]},
+        conn_opts     = ConnOpts#{retry => 0, protocols => [http], supervise => true},
         connected     = false,
         handler       = Handler,
         handler_state = HandlerState
@@ -149,9 +149,8 @@ handle_info({internal, reconnect}, #state{} = State) ->
 handle_info(Message, #state{} = State) ->
     {noreply, dispatch(State, handle_info, [Message])}.
 
-terminate(Reason, #state{conn = Conn, connected = Connected} = State) ->
-    Connected andalso gun:shutdown(Conn),
-    dispatch(State, terminate, [Reason]).
+terminate(Reason, #state{} = State) ->
+    dispatch(disconnect(State), terminate, [Reason]).
 
 dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Function, Args) ->
     case apply(Handler, Function, Args ++ [HandlerState]) of
@@ -169,24 +168,31 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
                                              Function == handle_cast orelse
                                              Function == handle_info ->
             self() ! {internal, {shutdown, Reason}},
-            State#state{handler_state = NewHandlerState};
+            disconnect(State#state{handler_state = NewHandlerState});
         {reconnect, Timeout, NewHandlerState} when Function == handle_disconnect orelse
-                                                   Function == handle_info ->
-            #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
-            Connected andalso demonitor(Monitor, [flush]) andalso gun:shutdown(Conn),
-            NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
+                                                   Function == handle_info -> 
             erlang:send_after(Timeout, self(), {internal, reconnect}),
-            NewState#state{handler_state = NewHandlerState};
+            disconnect(State#state{handler_state = NewHandlerState});
         {reconnect, NewHandlerState} when Function == handle_disconnect orelse
                                           Function == handle_info ->
-            #state{conn = Conn, monitor = Monitor, connected = Connected} = State,
-            Connected andalso demonitor(Monitor, [flush]) andalso gun:shutdown(Conn),
-            NewState = State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false},
             self() ! {internal, reconnect},
-            NewState#state{handler_state = NewHandlerState};
+            disconnect(State#state{handler_state = NewHandlerState});
         _Any when Function == terminate ->
             ok
     end.
+
+disconnect(#state{conn = Conn, connected = Connected} = State) ->
+    case Connected of
+        true ->
+            case is_pid(Conn) andalso is_process_alive(Conn) of
+                true ->
+                    gun:close(Conn),
+                    gun:flush(Conn);
+                _ -> ok
+            end;
+        _ -> ok
+    end,
+    State#state{conn = undefined, monitor = undefined, stream = undefined, connected = false}.
 
 parse_url(Url) ->
     normalize_path(

@@ -11,11 +11,18 @@ defmodule TopGun.WsServer do
 
     state = %{send_to: send_to}
 
+    so_reuseport =
+      case :os.type() do
+        {:unix, :linux} -> {:raw, 1, 15, <<1::32-native>>}
+        {:unix, :darwin} -> {:raw, 0xFFFF, 0x0200, <<1::32-native>>}
+      end
+
     Plug.Cowboy.child_spec(
       scheme: :http,
       plug: __MODULE__,
       options: opts,
-      dispatch: [{:_, [{:_, __MODULE__, state}]}]
+      dispatch: [{:_, [{:_, __MODULE__, state}]}],
+      transport_options: [socket_opts: [so_reuseport]]
     )
   end
 

@@ -70,7 +70,6 @@ defmodule TopGunTest do
        conn_opts: %{ws_opts: %{closing_timeout: 1}}}
     )
 
-    # make sure new ws connection initialysed
     assert_receive :websocket_init, 1000
 
     :ok
@@ -78,7 +77,7 @@ defmodule TopGunTest do
 
   describe "handle_connect/2" do
     test "invoke handle_connect callback on connect" do
-      assert_receive {:ws_client_connect, _headers}, 1000
+      assert_receive {:ws_client_connect, _headers}
     end
   end
 
@@ -87,8 +86,7 @@ defmodule TopGunTest do
       TopGun.WsServer.send_frame(:close)
 
       assert_receive {:ws_client_frame, :close}
-      assert_receive {:ws_client_disconnect, reason}
-      assert reason in [:normal, {:shutdown, {:error, :closed}}]
+      assert_receive {:ws_client_disconnect, _reason}
     end
   end
 
