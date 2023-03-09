@@ -117,8 +117,8 @@ handle_continue(connect, #state{uri = #{host := Host, port := Port}, conn_opts =
 handle_call(_Request, _from, State) ->
     {reply, not_implemented, State}.
 
-handle_cast({send_frame, Frames}, #state{conn = Conn, stream = Stream} = State) ->
-    ok = gun:ws_send(Conn, Stream, Frames),
+handle_cast({send_frame, Frames}, #state{} = State) ->
+    send(State, Frames),
     {noreply, State};
 handle_cast({cast, Message}, State) ->
     {noreply, dispatch(State, handle_cast, [Message])}.
@@ -129,7 +129,7 @@ handle_info({gun_up, Conn, _Proto}, #state{uri = #{path := Path}, conn_opts = Co
     {noreply, State#state{stream = Stream}};
 % skip gun_down event to invoke handle_disconnect on `DOWN` monitor.
 handle_info({gun_down, Conn, _Proto, _Reason, _Streams}, #state{conn = Conn} = State) ->
-    {noreply, State};
+    {noreply, State#state{connected = false}};
 % ws conn established
 handle_info({gun_upgrade, Conn, Stream, [<<"websocket">>], Headers}, #state{conn = Conn, stream = Stream} = State) ->
     NewState = State#state{connected = true},
@@ -160,8 +160,7 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
                                               Function == handle_frame orelse
                                               Function == handle_cast orelse
                                               Function == handle_info ->
-            #state{conn = Conn, stream = Stream} = State,
-            ok = gun:ws_send(Conn, Stream, Frames),
+            send(State, Frames),
             State#state{handler_state = NewHandlerState};
         {stop, Reason, NewHandlerState} when Function == handle_disconnect orelse
                                              Function == handle_frame orelse
@@ -180,6 +179,12 @@ dispatch(#state{handler = Handler, handler_state = HandlerState} = State, Functi
         _Any when Function == terminate ->
             ok
     end.
+
+% skip sending if not connected
+send(#state{connected = true, conn = Conn, stream = Stream}, Frames) ->
+    gun:ws_send(Conn, Stream, Frames);
+send(#state{}, _Frames) ->
+    ok.
 
 disconnect(#state{conn = Conn, connected = Connected} = State) ->
     case Connected of

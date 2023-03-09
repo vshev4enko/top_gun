@@ -33,7 +33,7 @@ defmodule TopGun.WsServer do
 
   @impl true
   def websocket_init(state) do
-    send(state.send_to, :websocket_init)
+    send(state.send_to, :websocket_server_init)
     true = Process.register(self(), __MODULE__)
     {:ok, state}
   end

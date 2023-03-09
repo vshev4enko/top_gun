@@ -70,7 +70,7 @@ defmodule TopGunTest do
        conn_opts: %{ws_opts: %{closing_timeout: 1}}}
     )
 
-    assert_receive :websocket_init, 1000
+    assert_receive :websocket_server_init, 1000
 
     :ok
   end
@@ -95,6 +95,20 @@ defmodule TopGunTest do
       TopGun.WsServer.send_frame({:text, "hello world"})
 
       assert_receive {:ws_client_frame, {:text, "hello world"}}
+    end
+  end
+
+  describe "send_frame/2" do
+    test "skip frames in disconnected state" do
+      TopGun.send_frame(WsClient, {:text, "hello world 1"})
+      TopGun.send_frame(WsClient, {:text, "hello world 2"})
+      TopGun.send_frame(WsClient, {:text, "hello world 3"})
+
+      assert_receive {:ws_client_connect, _headers}
+
+      TopGun.send_frame(WsClient, {:text, "hello world 4"})
+
+      assert_receive {:ws_server_message, "hello world 4"}
     end
   end
 
